@@ -4,7 +4,6 @@
  */
 
 import express from 'express';
-import bodyParser from 'body-parser';
 import crypto from 'crypto';
 import 'dotenv/config';
 import { 
@@ -60,12 +59,66 @@ validateEnvironment();
 
 
 // Middleware
-app.use(bodyParser.json({
+app.use(express.json({
     verify: (req, res, buf) => {
         req.rawBody = buf;
     }
 }));
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true }));
+
+const recentWebhookIds = new Map();
+const WEBHOOK_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+function verifyShopifyWebhook(req) {
+    if (!process.env.SHOPIFY_WEBHOOK_SECRET) {
+        return { ok: false, reason: 'SHOPIFY_WEBHOOK_SECRET not configured' };
+    }
+
+    const hmacHeader = req.get('x-shopify-hmac-sha256');
+    const rawBody = req.rawBody;
+
+    if (!rawBody || !hmacHeader) {
+        return { ok: false, reason: 'Missing raw body or HMAC header' };
+    }
+
+    const generatedHash = crypto
+        .createHmac('sha256', process.env.SHOPIFY_WEBHOOK_SECRET)
+        .update(rawBody)
+        .digest('base64');
+
+    const receivedBuffer = Buffer.from(hmacHeader, 'base64');
+    const generatedBuffer = Buffer.from(generatedHash, 'base64');
+
+    if (receivedBuffer.length !== generatedBuffer.length) {
+        return { ok: false, reason: 'HMAC length mismatch' };
+    }
+
+    const isValid = crypto.timingSafeEqual(generatedBuffer, receivedBuffer);
+
+    return isValid ? { ok: true } : { ok: false, reason: 'HMAC validation failed' };
+}
+
+function isDuplicateWebhook(req) {
+    const webhookId = req.get('x-shopify-webhook-id');
+    if (!webhookId) return false;
+
+    const now = Date.now();
+    const lastSeen = recentWebhookIds.get(webhookId);
+
+    // Cleanup old entries
+    recentWebhookIds.forEach((timestamp, id) => {
+        if (now - timestamp > WEBHOOK_DEDUP_WINDOW_MS) {
+            recentWebhookIds.delete(id);
+        }
+    });
+
+    if (lastSeen && now - lastSeen < WEBHOOK_DEDUP_WINDOW_MS) {
+        return true;
+    }
+
+    recentWebhookIds.set(webhookId, now);
+    return false;
+}
 
 // Request logging
 app.use((req, res, next) => {
