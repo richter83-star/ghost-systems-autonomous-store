@@ -6,11 +6,12 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import 'dotenv/config';
-import { 
-    getStoreInfo, 
+import {
+    getStoreInfo,
     getShopifyProducts,
     createWebhook,
-    getWebhooks
+    getWebhooks,
+    getShopifyStatus
 } from './shopify-integration.js';
 import { generateProducts } from './product-generator.js';
 
@@ -32,21 +33,25 @@ app.use((req, res, next) => {
 // ================================================
 app.get('/', async (req, res) => {
     try {
-        const store = await getStoreInfo();
-        
+        const shopifyStatus = getShopifyStatus();
+        const store = shopifyStatus.configured ? await getStoreInfo() : null;
+
         res.json({
             system: 'Ghost Systems Integration',
             status: 'Online',
             timestamp: new Date().toISOString(),
-            store: {
+            store: store ? {
                 name: store.name,
                 domain: store.domain,
                 currency: store.currency
-            },
+            } : null,
             services: {
-                shopify: 'connected',
+                shopify: shopifyStatus.configured ? 'connected' : 'missing configuration',
                 geminiAI: process.env.GEMINI_API_KEY ? 'configured' : 'not configured',
                 firebase: process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? 'configured' : 'not configured'
+            },
+            configuration: {
+                shopify: shopifyStatus
             },
             endpoints: {
                 status: 'GET /',
@@ -57,7 +62,7 @@ app.get('/', async (req, res) => {
             }
         });
     } catch (error) {
-        res.status(500).json({
+        res.status(error.code === 'SHOPIFY_CONFIG_MISSING' ? 503 : 500).json({
             system: 'Ghost Systems Integration',
             status: 'Error',
             error: error.message
@@ -72,6 +77,18 @@ app.get('/', async (req, res) => {
 // Get all products
 app.get('/api/products', async (req, res) => {
     try {
+        const shopifyStatus = getShopifyStatus();
+        if (!shopifyStatus.configured) {
+            return res.status(503).json({
+                success: false,
+                error: 'Shopify configuration missing',
+                details: {
+                    missing: shopifyStatus.missing,
+                    invalid: shopifyStatus.invalid
+                }
+            });
+        }
+
         const limit = parseInt(req.query.limit) || 50;
         const products = await getShopifyProducts(limit);
         
@@ -97,8 +114,20 @@ app.get('/api/products', async (req, res) => {
 // Generate new products
 app.post('/api/products/generate', async (req, res) => {
     try {
+        const shopifyStatus = getShopifyStatus();
+        if (!shopifyStatus.configured) {
+            return res.status(503).json({
+                success: false,
+                error: 'Shopify configuration missing',
+                details: {
+                    missing: shopifyStatus.missing,
+                    invalid: shopifyStatus.invalid
+                }
+            });
+        }
+
         const count = parseInt(req.body.count) || 1;
-        
+
         if (count > 20) {
             return res.status(400).json({
                 success: false,
@@ -139,8 +168,20 @@ app.post('/api/products/generate', async (req, res) => {
 // Get webhooks
 app.get('/api/webhooks', async (req, res) => {
     try {
+        const shopifyStatus = getShopifyStatus();
+        if (!shopifyStatus.configured) {
+            return res.status(503).json({
+                success: false,
+                error: 'Shopify configuration missing',
+                details: {
+                    missing: shopifyStatus.missing,
+                    invalid: shopifyStatus.invalid
+                }
+            });
+        }
+
         const webhooks = await getWebhooks();
-        
+
         res.json({
             success: true,
             count: webhooks.length,
@@ -187,31 +228,59 @@ app.post('/webhook/shopify/orders', (req, res) => {
 
 app.get('/api/analytics', async (req, res) => {
     try {
+        const shopifyStatus = getShopifyStatus();
+        if (!shopifyStatus.configured) {
+            return res.status(503).json({
+                success: false,
+                error: 'Shopify configuration missing',
+                details: {
+                    missing: shopifyStatus.missing,
+                    invalid: shopifyStatus.invalid
+                }
+            });
+        }
+
         const products = await getShopifyProducts(250);
-        
+
         const analytics = {
             totalProducts: products.length,
             byType: {},
             averagePrice: 0,
-            priceRange: { min: Infinity, max: 0 }
+            priceRange: { min: 0, max: 0 }
         };
-        
+
+        if (products.length === 0) {
+            return res.json({ success: true, analytics });
+        }
+
         let totalPrice = 0;
-        
+        let pricedCount = 0;
+
         products.forEach(product => {
             // Count by type
             const type = product.product_type || 'Uncategorized';
             analytics.byType[type] = (analytics.byType[type] || 0) + 1;
-            
-            // Calculate prices
-            const price = parseFloat(product.variants[0]?.price || 0);
-            totalPrice += price;
-            
-            if (price < analytics.priceRange.min) analytics.priceRange.min = price;
-            if (price > analytics.priceRange.max) analytics.priceRange.max = price;
+
+            // Calculate prices if present
+            const price = parseFloat(product.variants[0]?.price);
+
+            if (Number.isFinite(price)) {
+                totalPrice += price;
+                pricedCount += 1;
+
+                if (pricedCount === 1) {
+                    analytics.priceRange.min = price;
+                    analytics.priceRange.max = price;
+                } else {
+                    if (price < analytics.priceRange.min) analytics.priceRange.min = price;
+                    if (price > analytics.priceRange.max) analytics.priceRange.max = price;
+                }
+            }
         });
-        
-        analytics.averagePrice = (totalPrice / products.length).toFixed(2);
+
+        if (pricedCount > 0) {
+            analytics.averagePrice = Number((totalPrice / pricedCount).toFixed(2));
+        }
         
         res.json({
             success: true,
