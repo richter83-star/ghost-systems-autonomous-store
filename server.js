@@ -5,21 +5,66 @@
 
 import express from 'express';
 import bodyParser from 'body-parser';
+import crypto from 'crypto';
 import 'dotenv/config';
-import {
-    getStoreInfo,
+import { 
+    getStoreInfo, 
     getShopifyProducts,
     createWebhook,
-    getWebhooks,
-    getShopifyStatus
+    getWebhooks
 } from './shopify-integration.js';
 import { generateProducts } from './product-generator.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+function normalizeStoreUrl(url) {
+    if (!url) return url;
+    let u = url.trim();
+    if (!u.startsWith('http://') && !u.startsWith('https://')) u = `https://${u}`;
+    // remove trailing slash
+    u = u.replace(/\/+$/, '');
+    return u;
+}
+
+function validateEnvironment() {
+    // Normalize in-process so downstream modules that read process.env get a consistent value.
+    if (process.env.SHOPIFY_STORE_URL) {
+        process.env.SHOPIFY_STORE_URL = normalizeStoreUrl(process.env.SHOPIFY_STORE_URL);
+    }
+
+    const required = ['SHOPIFY_STORE_URL', 'SHOPIFY_ADMIN_API_TOKEN'];
+    const missing = required.filter(k => !process.env[k] || String(process.env[k]).trim().length === 0);
+
+    if (missing.length) {
+        console.error('\n================================================');
+        console.error('GHOST SYSTEMS - CONFIGURATION ERROR');
+        console.error('Missing required environment variables:');
+        missing.forEach(k => console.error(`  - ${k}`));
+        console.error('Fix: set these in your host (Render) Environment, then redeploy.');
+        console.error('================================================\n');
+        process.exit(1);
+    }
+
+    // Webhook secret is strongly recommended; if absent we will reject webhook calls to avoid spoofing.
+    if (!process.env.SHOPIFY_WEBHOOK_SECRET) {
+        console.warn('[WARN] SHOPIFY_WEBHOOK_SECRET is not set. Webhook endpoints will return 503 until configured.');
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+        console.warn('[WARN] GEMINI_API_KEY is not set. /api/products/generate will return 400 until configured.');
+    }
+}
+
+validateEnvironment();
+
+
 // Middleware
-app.use(bodyParser.json());
+app.use(bodyParser.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+}));
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // Request logging
@@ -33,25 +78,21 @@ app.use((req, res, next) => {
 // ================================================
 app.get('/', async (req, res) => {
     try {
-        const shopifyStatus = getShopifyStatus();
-        const store = shopifyStatus.configured ? await getStoreInfo() : null;
-
+        const store = await getStoreInfo();
+        
         res.json({
             system: 'Ghost Systems Integration',
             status: 'Online',
             timestamp: new Date().toISOString(),
-            store: store ? {
+            store: {
                 name: store.name,
                 domain: store.domain,
                 currency: store.currency
-            } : null,
+            },
             services: {
-                shopify: shopifyStatus.configured ? 'connected' : 'missing configuration',
+                shopify: 'connected',
                 geminiAI: process.env.GEMINI_API_KEY ? 'configured' : 'not configured',
                 firebase: process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? 'configured' : 'not configured'
-            },
-            configuration: {
-                shopify: shopifyStatus
             },
             endpoints: {
                 status: 'GET /',
@@ -62,7 +103,7 @@ app.get('/', async (req, res) => {
             }
         });
     } catch (error) {
-        res.status(error.code === 'SHOPIFY_CONFIG_MISSING' ? 503 : 500).json({
+        res.status(500).json({
             system: 'Ghost Systems Integration',
             status: 'Error',
             error: error.message
@@ -77,18 +118,6 @@ app.get('/', async (req, res) => {
 // Get all products
 app.get('/api/products', async (req, res) => {
     try {
-        const shopifyStatus = getShopifyStatus();
-        if (!shopifyStatus.configured) {
-            return res.status(503).json({
-                success: false,
-                error: 'Shopify configuration missing',
-                details: {
-                    missing: shopifyStatus.missing,
-                    invalid: shopifyStatus.invalid
-                }
-            });
-        }
-
         const limit = parseInt(req.query.limit) || 50;
         const products = await getShopifyProducts(limit);
         
@@ -114,20 +143,8 @@ app.get('/api/products', async (req, res) => {
 // Generate new products
 app.post('/api/products/generate', async (req, res) => {
     try {
-        const shopifyStatus = getShopifyStatus();
-        if (!shopifyStatus.configured) {
-            return res.status(503).json({
-                success: false,
-                error: 'Shopify configuration missing',
-                details: {
-                    missing: shopifyStatus.missing,
-                    invalid: shopifyStatus.invalid
-                }
-            });
-        }
-
         const count = parseInt(req.body.count) || 1;
-
+        
         if (count > 20) {
             return res.status(400).json({
                 success: false,
@@ -168,20 +185,8 @@ app.post('/api/products/generate', async (req, res) => {
 // Get webhooks
 app.get('/api/webhooks', async (req, res) => {
     try {
-        const shopifyStatus = getShopifyStatus();
-        if (!shopifyStatus.configured) {
-            return res.status(503).json({
-                success: false,
-                error: 'Shopify configuration missing',
-                details: {
-                    missing: shopifyStatus.missing,
-                    invalid: shopifyStatus.invalid
-                }
-            });
-        }
-
         const webhooks = await getWebhooks();
-
+        
         res.json({
             success: true,
             count: webhooks.length,
@@ -198,6 +203,14 @@ app.get('/api/webhooks', async (req, res) => {
 // Shopify order webhook
 app.post('/webhook/shopify/orders', (req, res) => {
     try {
+        const verify = verifyShopifyWebhook(req);
+        if (!verify.ok) {
+            return res.status(503).json({ success: false, error: `Webhook rejected: ${verify.reason}` });
+        }
+        if (isDuplicateWebhook(req)) {
+            return res.status(200).json({ success: true, message: 'Duplicate webhook ignored' });
+        }
+
         const order = req.body;
         
         console.log('📦 New order received:');
@@ -228,59 +241,31 @@ app.post('/webhook/shopify/orders', (req, res) => {
 
 app.get('/api/analytics', async (req, res) => {
     try {
-        const shopifyStatus = getShopifyStatus();
-        if (!shopifyStatus.configured) {
-            return res.status(503).json({
-                success: false,
-                error: 'Shopify configuration missing',
-                details: {
-                    missing: shopifyStatus.missing,
-                    invalid: shopifyStatus.invalid
-                }
-            });
-        }
-
         const products = await getShopifyProducts(250);
-
+        
         const analytics = {
             totalProducts: products.length,
             byType: {},
             averagePrice: 0,
-            priceRange: { min: 0, max: 0 }
+            priceRange: { min: Infinity, max: 0 }
         };
-
-        if (products.length === 0) {
-            return res.json({ success: true, analytics });
-        }
-
+        
         let totalPrice = 0;
-        let pricedCount = 0;
-
+        
         products.forEach(product => {
             // Count by type
             const type = product.product_type || 'Uncategorized';
             analytics.byType[type] = (analytics.byType[type] || 0) + 1;
-
-            // Calculate prices if present
-            const price = parseFloat(product.variants[0]?.price);
-
-            if (Number.isFinite(price)) {
-                totalPrice += price;
-                pricedCount += 1;
-
-                if (pricedCount === 1) {
-                    analytics.priceRange.min = price;
-                    analytics.priceRange.max = price;
-                } else {
-                    if (price < analytics.priceRange.min) analytics.priceRange.min = price;
-                    if (price > analytics.priceRange.max) analytics.priceRange.max = price;
-                }
-            }
+            
+            // Calculate prices
+            const price = parseFloat(product.variants[0]?.price || 0);
+            totalPrice += price;
+            
+            if (price < analytics.priceRange.min) analytics.priceRange.min = price;
+            if (price > analytics.priceRange.max) analytics.priceRange.max = price;
         });
-
-        if (pricedCount > 0) {
-            analytics.averagePrice = Number((totalPrice / pricedCount).toFixed(2));
-        }
+        
+        analytics.averagePrice = (totalPrice / products.length).toFixed(2);
         
         res.json({
             success: true,

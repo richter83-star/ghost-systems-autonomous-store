@@ -6,81 +6,89 @@
 import axios from 'axios';
 import 'dotenv/config';
 
-const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
-const SHOPIFY_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN;
-const API_VERSION = process.env.SHOPIFY_API_VERSION || '2025-01';
-
-let shopifyAPI;
-
 function normalizeStoreUrl(url) {
-    const trimmed = url?.trim();
-    if (!trimmed) return null;
-
-    const sanitized = trimmed.replace(/\/+$/, '');
-    if (!sanitized.startsWith('http')) {
-        return `https://${sanitized}`;
-    }
-
-    return sanitized;
+    if (!url) return url;
+    let u = String(url).trim();
+    if (!u.startsWith('http://') && !u.startsWith('https://')) u = `https://${u}`;
+    u = u.replace(/\/+$/, '');
+    return u;
 }
 
-function validateShopifyConfig() {
-    const missing = [];
-
-    if (!SHOPIFY_STORE_URL) missing.push('SHOPIFY_STORE_URL');
-    if (!SHOPIFY_TOKEN) missing.push('SHOPIFY_ADMIN_API_TOKEN');
-    if (!API_VERSION) missing.push('SHOPIFY_API_VERSION');
-
-    if (missing.length > 0) {
-        const error = new Error(`Missing Shopify environment variables: ${missing.join(', ')}`);
-        error.code = 'SHOPIFY_CONFIG_MISSING';
-        throw error;
-    }
-
-    const normalizedUrl = normalizeStoreUrl(SHOPIFY_STORE_URL);
-
-    if (!normalizedUrl?.startsWith('https://')) {
-        const error = new Error('SHOPIFY_STORE_URL must include an https:// URL');
-        error.code = 'SHOPIFY_CONFIG_INVALID';
-        throw error;
-    }
-
-    return {
-        storeUrl: normalizedUrl,
-        token: SHOPIFY_TOKEN.trim(),
-        apiVersion: API_VERSION.trim()
-    };
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function handleShopifyError(action, error) {
-    const responseErrors = error.response?.data?.errors;
-    const details = responseErrors ? ` (${JSON.stringify(responseErrors)})` : '';
-    console.error(`✗ Failed to ${action}: ${error.message}${details}`);
-    throw error;
+function formatAxiosError(error) {
+    const status = error?.response?.status;
+    const data = error?.response?.data;
+    const msg = error?.message || 'Unknown error';
+    if (!status) return msg;
+    const details = data ? JSON.stringify(data) : '';
+    return `${msg} (HTTP ${status}) ${details}`;
 }
 
-function getShopifyClient() {
-    if (!shopifyAPI) {
-        const config = validateShopifyConfig();
+const SHOPIFY_STORE_URL_RAW = process.env.SHOPIFY_STORE_URL;
+const SHOPIFY_STORE_URL = normalizeStoreUrl(SHOPIFY_STORE_URL_RAW);
+const SHOPIFY_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN;
+const API_VERSION = process.env.SHOPIFY_API_VERSION || '2024-10';
 
-        shopifyAPI = axios.create({
-            baseURL: `${config.storeUrl}/admin/api/${config.apiVersion}`,
-            headers: {
-                'X-Shopify-Access-Token': config.token,
-                'Content-Type': 'application/json'
+if (!SHOPIFY_STORE_URL) {
+    throw new Error('SHOPIFY_STORE_URL is not set. Set it in your environment (e.g., Render Environment).');
+}
+if (!SHOPIFY_TOKEN) {
+    throw new Error('SHOPIFY_ADMIN_API_TOKEN is not set. Set it in your environment (e.g., Render Environment).');
+}
+
+
+const shopifyAPI = axios.create({
+    timeout: 30000,
+    baseURL: `${SHOPIFY_STORE_URL}/admin/api/${API_VERSION}`,
+    headers: {
+        'X-Shopify-Access-Token': SHOPIFY_TOKEN,
+        'Content-Type': 'application/json'
+    }
+});
+
+async function shopifyRequest(config, attempt = 0) {
+    const maxRetries = parseInt(process.env.SHOPIFY_MAX_RETRIES || '5', 10);
+    const baseDelayMs = parseInt(process.env.SHOPIFY_RETRY_BASE_DELAY_MS || '1000', 10);
+
+    try {
+        const response = await shopifyAPI.request(config);
+        return response;
+    } catch (error) {
+        const status = error?.response?.status;
+        const isRetryable =
+            status === 429 ||
+            (status && status >= 500) ||
+            (!status && (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND' || error.code === 'ECONNRESET'));
+
+        if (!isRetryable || attempt >= maxRetries) {
+            // Improve common auth failures
+            if (status === 401 || status === 403) {
+                throw new Error(`Shopify auth/scopes error. Verify SHOPIFY_ADMIN_API_TOKEN, app scopes, and shop domain. ${formatAxiosError(error)}`);
             }
-        });
-    }
+            throw new Error(formatAxiosError(error));
+        }
 
-    return shopifyAPI;
+        // Respect Retry-After when throttled
+        const retryAfter = parseFloat(error?.response?.headers?.['retry-after'] || '0');
+        const expo = baseDelayMs * Math.pow(2, attempt);
+        const jitter = Math.floor(Math.random() * 250);
+        const delay = (retryAfter > 0 ? retryAfter * 1000 : expo) + jitter;
+
+        console.warn(`[Shopify] retrying request (${attempt + 1}/${maxRetries}) in ${delay}ms due to: ${formatAxiosError(error)}`);
+        await sleep(delay);
+        return shopifyRequest(config, attempt + 1);
+    }
 }
+
 
 /**
  * Create product in Shopify
  */
 export async function createShopifyProduct({ title, description, productType, price, imageBase64, tags = [] }) {
     try {
-        const shopifyAPI = getShopifyClient();
         const productPayload = {
             product: {
                 title,
@@ -104,12 +112,13 @@ export async function createShopifyProduct({ title, description, productType, pr
             }];
         }
 
-        const response = await shopifyAPI.post('/products.json', productPayload);
-
+        const response = await shopifyRequest({ method: 'post', url: '/products.json', data: productPayload });
+        
         console.log(`✓ Created product: ${title} (ID: ${response.data.product.id})`);
         return response.data.product;
     } catch (error) {
-        handleShopifyError('create product', error);
+        console.error(`✗ Failed to create product: ${error.message}`);
+        throw error;
     }
 }
 
@@ -118,15 +127,15 @@ export async function createShopifyProduct({ title, description, productType, pr
  */
 export async function updateShopifyProduct(productId, updates) {
     try {
-        const shopifyAPI = getShopifyClient();
-        const response = await shopifyAPI.put(`/products/${productId}.json`, {
+        const response = await shopifyRequest({ method: 'put', url: `/products/${productId}.json`, data: {
             product: updates
-        });
+        }});
         
         console.log(`✓ Updated product ID: ${productId}`);
         return response.data.product;
     } catch (error) {
-        handleShopifyError('update product', error);
+        console.error(`✗ Failed to update product: ${error.message}`);
+        throw error;
     }
 }
 
@@ -135,11 +144,11 @@ export async function updateShopifyProduct(productId, updates) {
  */
 export async function getShopifyProducts(limit = 250) {
     try {
-        const shopifyAPI = getShopifyClient();
-        const response = await shopifyAPI.get(`/products.json?limit=${limit}`);
+        const response = await shopifyRequest({ method: 'get', url: `/products.json?limit=${limit}` });
         return response.data.products;
     } catch (error) {
-        handleShopifyError('fetch products', error);
+        console.error(`✗ Failed to fetch products: ${error.message}`);
+        throw error;
     }
 }
 
@@ -148,12 +157,12 @@ export async function getShopifyProducts(limit = 250) {
  */
 export async function deleteShopifyProduct(productId) {
     try {
-        const shopifyAPI = getShopifyClient();
-        await shopifyAPI.delete(`/products/${productId}.json`);
+        await shopifyRequest({ method: 'delete', url: `/products/${productId}.json` });
         console.log(`✓ Deleted product ID: ${productId}`);
         return true;
     } catch (error) {
-        handleShopifyError('delete product', error);
+        console.error(`✗ Failed to delete product: ${error.message}`);
+        throw error;
     }
 }
 
@@ -162,17 +171,17 @@ export async function deleteShopifyProduct(productId) {
  */
 export async function updateProductImage(productId, imageBase64) {
     try {
-        const shopifyAPI = getShopifyClient();
-        const response = await shopifyAPI.post(`/products/${productId}/images.json`, {
+        const response = await shopifyRequest({ method: 'post', url: `/products/${productId}/images.json`, data: {
             image: {
                 attachment: imageBase64
             }
-        });
+        }});
         
         console.log(`✓ Updated image for product ID: ${productId}`);
         return response.data.image;
     } catch (error) {
-        handleShopifyError('update image', error);
+        console.error(`✗ Failed to update image: ${error.message}`);
+        throw error;
     }
 }
 
@@ -181,13 +190,10 @@ export async function updateProductImage(productId, imageBase64) {
  */
 export async function applyDracanusTheme(themeId) {
     try {
-        const shopifyAPI = getShopifyClient();
         console.log('Applying DRACANUS theme customizations...');
         
         // Get current settings
-        const settingsResponse = await shopifyAPI.get(`/themes/${themeId}/assets.json`, {
-            params: { 'asset[key]': 'config/settings_data.json' }
-        });
+        const settingsResponse = await shopifyRequest({ method: 'get', url: `/themes/${themeId}/assets.json`, params: { 'asset[key]': 'config/settings_data.json' } });
         
         const settings = JSON.parse(settingsResponse.data.asset.value);
         
@@ -200,17 +206,18 @@ export async function applyDracanusTheme(themeId) {
         }
         
         // Save updated settings
-        await shopifyAPI.put(`/themes/${themeId}/assets.json`, {
+        await shopifyRequest({ method: 'put', url: `/themes/${themeId}/assets.json`, data: {
             asset: {
                 key: 'config/settings_data.json',
                 value: JSON.stringify(settings)
             }
-        });
+        }});
         
         console.log('✓ DRACANUS theme applied successfully');
         return true;
     } catch (error) {
-        handleShopifyError('apply theme', error);
+        console.error(`✗ Failed to apply theme: ${error.message}`);
+        throw error;
     }
 }
 
@@ -219,11 +226,11 @@ export async function applyDracanusTheme(themeId) {
  */
 export async function getStoreInfo() {
     try {
-        const shopifyAPI = getShopifyClient();
-        const response = await shopifyAPI.get('/shop.json');
+        const response = await shopifyRequest({ method: 'get', url: '/shop.json' });
         return response.data.shop;
     } catch (error) {
-        handleShopifyError('fetch store info', error);
+        console.error(`✗ Failed to fetch store info: ${error.message}`);
+        throw error;
     }
 }
 
@@ -232,19 +239,19 @@ export async function getStoreInfo() {
  */
 export async function createWebhook(topic, address) {
     try {
-        const shopifyAPI = getShopifyClient();
-        const response = await shopifyAPI.post('/webhooks.json', {
+        const response = await shopifyRequest({ method: 'post', url: '/webhooks.json', data: {
             webhook: {
                 topic,
                 address,
                 format: 'json'
             }
-        });
+        }});
         
         console.log(`✓ Created webhook for ${topic}`);
         return response.data.webhook;
     } catch (error) {
-        handleShopifyError('create webhook', error);
+        console.error(`✗ Failed to create webhook: ${error.message}`);
+        throw error;
     }
 }
 
@@ -253,30 +260,12 @@ export async function createWebhook(topic, address) {
  */
 export async function getWebhooks() {
     try {
-        const shopifyAPI = getShopifyClient();
-        const response = await shopifyAPI.get('/webhooks.json');
+        const response = await shopifyRequest({ method: 'get', url: '/webhooks.json' });
         return response.data.webhooks;
     } catch (error) {
-        handleShopifyError('fetch webhooks', error);
+        console.error(`✗ Failed to fetch webhooks: ${error.message}`);
+        throw error;
     }
-}
-
-export function getShopifyStatus() {
-    const missing = [];
-
-    if (!SHOPIFY_STORE_URL) missing.push('SHOPIFY_STORE_URL');
-    if (!SHOPIFY_TOKEN) missing.push('SHOPIFY_ADMIN_API_TOKEN');
-    if (!API_VERSION) missing.push('SHOPIFY_API_VERSION');
-    const normalizedUrl = normalizeStoreUrl(SHOPIFY_STORE_URL);
-    const invalidStoreUrl = normalizedUrl ? !normalizedUrl.startsWith('https://') : false;
-
-    return {
-        configured: missing.length === 0 && !invalidStoreUrl,
-        missing,
-        storeUrl: normalizedUrl || null,
-        apiVersion: API_VERSION?.trim() || null,
-        invalid: invalidStoreUrl ? ['SHOPIFY_STORE_URL must include https://'] : []
-    };
 }
 
 /**
@@ -306,6 +295,5 @@ export default {
     getStoreInfo,
     createWebhook,
     getWebhooks,
-    testConnection,
-    getShopifyStatus
+    testConnection
 };

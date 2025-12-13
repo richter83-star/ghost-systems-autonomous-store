@@ -1,3 +1,9 @@
+# DEPLOYMENT GUIDE (SANITIZED)
+
+## Security Notice
+Do NOT commit secrets (Shopify tokens, Render API keys, Firebase service accounts) to GitHub.
+If you previously committed secrets, rotate/revoke them immediately and purge them from git history.
+
 # 🚀 DEPLOYMENT GUIDE - GHOST SYSTEMS INTEGRATION
 
 Complete guide for deploying your Ghost Systems integration to production.
@@ -65,7 +71,7 @@ git push -u origin main
 3. **Set Environment Variables** in Render Dashboard:
 ```bash
 SHOPIFY_STORE_URL=https://dracanus-ai.myshopify.com
-SHOPIFY_ADMIN_API_TOKEN=REDACTED_SHOPIFY_TOKEN
+SHOPIFY_ADMIN_API_TOKEN=YOUR_SHOPIFY_ADMIN_API_TOKEN
 SHOPIFY_API_VERSION=2024-10
 FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 GEMINI_API_KEY=your_key_here
@@ -81,7 +87,7 @@ PORT=10000
 ```bash
 # Use your Render URL
 curl -X POST "https://dracanus-ai.myshopify.com/admin/api/2024-10/webhooks.json" \
-  -H "X-Shopify-Access-Token: REDACTED_SHOPIFY_TOKEN" \
+  -H "X-Shopify-Access-Token: YOUR_SHOPIFY_ADMIN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "webhook": {
@@ -113,7 +119,7 @@ heroku create ghost-systems-integration
 3. **Set Config Vars**
 ```bash
 heroku config:set SHOPIFY_STORE_URL=https://dracanus-ai.myshopify.com
-heroku config:set SHOPIFY_ADMIN_API_TOKEN=REDACTED_SHOPIFY_TOKEN
+heroku config:set SHOPIFY_ADMIN_API_TOKEN=YOUR_SHOPIFY_ADMIN_API_TOKEN
 heroku config:set SHOPIFY_API_VERSION=2024-10
 heroku config:set FIREBASE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 heroku config:set GEMINI_API_KEY=your_key_here
@@ -268,7 +274,7 @@ Register Shopify webhooks to point to your deployed URL:
 ```bash
 # Orders webhook
 curl -X POST "https://dracanus-ai.myshopify.com/admin/api/2024-10/webhooks.json" \
-  -H "X-Shopify-Access-Token: REDACTED_SHOPIFY_TOKEN" \
+  -H "X-Shopify-Access-Token: YOUR_SHOPIFY_ADMIN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "webhook": {
@@ -280,7 +286,7 @@ curl -X POST "https://dracanus-ai.myshopify.com/admin/api/2024-10/webhooks.json"
 
 # Products webhook
 curl -X POST "https://dracanus-ai.myshopify.com/admin/api/2024-10/webhooks.json" \
-  -H "X-Shopify-Access-Token: REDACTED_SHOPIFY_TOKEN" \
+  -H "X-Shopify-Access-Token: YOUR_SHOPIFY_ADMIN_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "webhook": {
@@ -295,7 +301,7 @@ curl -X POST "https://dracanus-ai.myshopify.com/admin/api/2024-10/webhooks.json"
 
 ```bash
 curl https://dracanus-ai.myshopify.com/admin/api/2024-10/webhooks.json \
-  -H "X-Shopify-Access-Token: REDACTED_SHOPIFY_TOKEN"
+  -H "X-Shopify-Access-Token: YOUR_SHOPIFY_ADMIN_API_TOKEN"
 ```
 
 ---

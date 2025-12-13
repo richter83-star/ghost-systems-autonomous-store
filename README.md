@@ -173,3 +173,12 @@ Proprietary - All Rights Reserved
 **Built with AI. Powered by Automation. Optimized for Profit.**
 
 🚀 DRACANUS AI - Autonomous Commerce Systems
+
+
+## Security & Configuration
+
+- Never commit secrets to the repo (Shopify tokens, Render API keys, Firebase service accounts).
+- Configure environment variables in your host (Render) using `.env.example` as a template.
+
+**Webhook security (recommended):**
+- Set `SHOPIFY_WEBHOOK_SECRET` and the server will verify webhook authenticity via HMAC.
