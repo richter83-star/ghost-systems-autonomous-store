@@ -8,21 +8,79 @@ import 'dotenv/config';
 
 const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
 const SHOPIFY_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN;
-const API_VERSION = process.env.SHOPIFY_API_VERSION || '2024-10';
+const API_VERSION = process.env.SHOPIFY_API_VERSION || '2025-01';
 
-const shopifyAPI = axios.create({
-    baseURL: `${SHOPIFY_STORE_URL}/admin/api/${API_VERSION}`,
-    headers: {
-        'X-Shopify-Access-Token': SHOPIFY_TOKEN,
-        'Content-Type': 'application/json'
+let shopifyAPI;
+
+function normalizeStoreUrl(url) {
+    const trimmed = url?.trim();
+    if (!trimmed) return null;
+
+    const sanitized = trimmed.replace(/\/+$/, '');
+    if (!sanitized.startsWith('http')) {
+        return `https://${sanitized}`;
     }
-});
+
+    return sanitized;
+}
+
+function validateShopifyConfig() {
+    const missing = [];
+
+    if (!SHOPIFY_STORE_URL) missing.push('SHOPIFY_STORE_URL');
+    if (!SHOPIFY_TOKEN) missing.push('SHOPIFY_ADMIN_API_TOKEN');
+    if (!API_VERSION) missing.push('SHOPIFY_API_VERSION');
+
+    if (missing.length > 0) {
+        const error = new Error(`Missing Shopify environment variables: ${missing.join(', ')}`);
+        error.code = 'SHOPIFY_CONFIG_MISSING';
+        throw error;
+    }
+
+    const normalizedUrl = normalizeStoreUrl(SHOPIFY_STORE_URL);
+
+    if (!normalizedUrl?.startsWith('https://')) {
+        const error = new Error('SHOPIFY_STORE_URL must include an https:// URL');
+        error.code = 'SHOPIFY_CONFIG_INVALID';
+        throw error;
+    }
+
+    return {
+        storeUrl: normalizedUrl,
+        token: SHOPIFY_TOKEN.trim(),
+        apiVersion: API_VERSION.trim()
+    };
+}
+
+function handleShopifyError(action, error) {
+    const responseErrors = error.response?.data?.errors;
+    const details = responseErrors ? ` (${JSON.stringify(responseErrors)})` : '';
+    console.error(`✗ Failed to ${action}: ${error.message}${details}`);
+    throw error;
+}
+
+function getShopifyClient() {
+    if (!shopifyAPI) {
+        const config = validateShopifyConfig();
+
+        shopifyAPI = axios.create({
+            baseURL: `${config.storeUrl}/admin/api/${config.apiVersion}`,
+            headers: {
+                'X-Shopify-Access-Token': config.token,
+                'Content-Type': 'application/json'
+            }
+        });
+    }
+
+    return shopifyAPI;
+}
 
 /**
  * Create product in Shopify
  */
 export async function createShopifyProduct({ title, description, productType, price, imageBase64, tags = [] }) {
     try {
+        const shopifyAPI = getShopifyClient();
         const productPayload = {
             product: {
                 title,
@@ -47,12 +105,11 @@ export async function createShopifyProduct({ title, description, productType, pr
         }
 
         const response = await shopifyAPI.post('/products.json', productPayload);
-        
+
         console.log(`✓ Created product: ${title} (ID: ${response.data.product.id})`);
         return response.data.product;
     } catch (error) {
-        console.error(`✗ Failed to create product: ${error.message}`);
-        throw error;
+        handleShopifyError('create product', error);
     }
 }
 
@@ -61,6 +118,7 @@ export async function createShopifyProduct({ title, description, productType, pr
  */
 export async function updateShopifyProduct(productId, updates) {
     try {
+        const shopifyAPI = getShopifyClient();
         const response = await shopifyAPI.put(`/products/${productId}.json`, {
             product: updates
         });
@@ -68,8 +126,7 @@ export async function updateShopifyProduct(productId, updates) {
         console.log(`✓ Updated product ID: ${productId}`);
         return response.data.product;
     } catch (error) {
-        console.error(`✗ Failed to update product: ${error.message}`);
-        throw error;
+        handleShopifyError('update product', error);
     }
 }
 
@@ -78,11 +135,11 @@ export async function updateShopifyProduct(productId, updates) {
  */
 export async function getShopifyProducts(limit = 250) {
     try {
+        const shopifyAPI = getShopifyClient();
         const response = await shopifyAPI.get(`/products.json?limit=${limit}`);
         return response.data.products;
     } catch (error) {
-        console.error(`✗ Failed to fetch products: ${error.message}`);
-        throw error;
+        handleShopifyError('fetch products', error);
     }
 }
 
@@ -91,12 +148,12 @@ export async function getShopifyProducts(limit = 250) {
  */
 export async function deleteShopifyProduct(productId) {
     try {
+        const shopifyAPI = getShopifyClient();
         await shopifyAPI.delete(`/products/${productId}.json`);
         console.log(`✓ Deleted product ID: ${productId}`);
         return true;
     } catch (error) {
-        console.error(`✗ Failed to delete product: ${error.message}`);
-        throw error;
+        handleShopifyError('delete product', error);
     }
 }
 
@@ -105,6 +162,7 @@ export async function deleteShopifyProduct(productId) {
  */
 export async function updateProductImage(productId, imageBase64) {
     try {
+        const shopifyAPI = getShopifyClient();
         const response = await shopifyAPI.post(`/products/${productId}/images.json`, {
             image: {
                 attachment: imageBase64
@@ -114,8 +172,7 @@ export async function updateProductImage(productId, imageBase64) {
         console.log(`✓ Updated image for product ID: ${productId}`);
         return response.data.image;
     } catch (error) {
-        console.error(`✗ Failed to update image: ${error.message}`);
-        throw error;
+        handleShopifyError('update image', error);
     }
 }
 
@@ -124,6 +181,7 @@ export async function updateProductImage(productId, imageBase64) {
  */
 export async function applyDracanusTheme(themeId) {
     try {
+        const shopifyAPI = getShopifyClient();
         console.log('Applying DRACANUS theme customizations...');
         
         // Get current settings
@@ -152,8 +210,7 @@ export async function applyDracanusTheme(themeId) {
         console.log('✓ DRACANUS theme applied successfully');
         return true;
     } catch (error) {
-        console.error(`✗ Failed to apply theme: ${error.message}`);
-        throw error;
+        handleShopifyError('apply theme', error);
     }
 }
 
@@ -162,11 +219,11 @@ export async function applyDracanusTheme(themeId) {
  */
 export async function getStoreInfo() {
     try {
+        const shopifyAPI = getShopifyClient();
         const response = await shopifyAPI.get('/shop.json');
         return response.data.shop;
     } catch (error) {
-        console.error(`✗ Failed to fetch store info: ${error.message}`);
-        throw error;
+        handleShopifyError('fetch store info', error);
     }
 }
 
@@ -175,6 +232,7 @@ export async function getStoreInfo() {
  */
 export async function createWebhook(topic, address) {
     try {
+        const shopifyAPI = getShopifyClient();
         const response = await shopifyAPI.post('/webhooks.json', {
             webhook: {
                 topic,
@@ -186,8 +244,7 @@ export async function createWebhook(topic, address) {
         console.log(`✓ Created webhook for ${topic}`);
         return response.data.webhook;
     } catch (error) {
-        console.error(`✗ Failed to create webhook: ${error.message}`);
-        throw error;
+        handleShopifyError('create webhook', error);
     }
 }
 
@@ -196,12 +253,30 @@ export async function createWebhook(topic, address) {
  */
 export async function getWebhooks() {
     try {
+        const shopifyAPI = getShopifyClient();
         const response = await shopifyAPI.get('/webhooks.json');
         return response.data.webhooks;
     } catch (error) {
-        console.error(`✗ Failed to fetch webhooks: ${error.message}`);
-        throw error;
+        handleShopifyError('fetch webhooks', error);
     }
+}
+
+export function getShopifyStatus() {
+    const missing = [];
+
+    if (!SHOPIFY_STORE_URL) missing.push('SHOPIFY_STORE_URL');
+    if (!SHOPIFY_TOKEN) missing.push('SHOPIFY_ADMIN_API_TOKEN');
+    if (!API_VERSION) missing.push('SHOPIFY_API_VERSION');
+    const normalizedUrl = normalizeStoreUrl(SHOPIFY_STORE_URL);
+    const invalidStoreUrl = normalizedUrl ? !normalizedUrl.startsWith('https://') : false;
+
+    return {
+        configured: missing.length === 0 && !invalidStoreUrl,
+        missing,
+        storeUrl: normalizedUrl || null,
+        apiVersion: API_VERSION?.trim() || null,
+        invalid: invalidStoreUrl ? ['SHOPIFY_STORE_URL must include https://'] : []
+    };
 }
 
 /**
@@ -231,5 +306,6 @@ export default {
     getStoreInfo,
     createWebhook,
     getWebhooks,
-    testConnection
+    testConnection,
+    getShopifyStatus
 };
