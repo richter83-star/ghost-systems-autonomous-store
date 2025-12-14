@@ -6,7 +6,6 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-integration.js",
     "generate": "node product-generator.js",
     "generate:5": "node product-generator.js 5",
     "generate:10": "node product-generator.js 10",
@@ -16,7 +15,9 @@
     "marketing:generate": "node autonomous-marketing.js",
     "autonomous:full": "node autonomous-store-setup.js",
     "setup": "bash setup.sh",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "cycle:dry": "node cycle-dry-run.js",
+    "test": "node test-cycle.js && node test-integration.js"
   },
   "keywords": [
     "shopify",
