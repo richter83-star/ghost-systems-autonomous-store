@@ -344,10 +344,11 @@ app.get('/api/analytics', async (req, res) => {
 app.post('/api/cycle/run', async (req, res) => {
     try {
         const windowHours = parseInt(req.body.windowHours || '24', 10);
-        const dryRun = req.body.dryRun === true || req.body.dryRun === 'true';
-        const { jobId, cycleId, status } = await runDecisionCycle({ windowHours, dryRun });
+        const apply = (req.query.apply === 'true') || (process.env.ALLOW_MUTATIONS === 'true');
+        const dryRun = req.body?.dryRun === true || req.body?.dryRun === 'true' || !apply;
+        const { jobId, cycleId, status } = await runDecisionCycle({ windowHours, dryRun, apply });
 
-        res.json({ success: true, jobId, cycleId, status });
+        res.json({ success: true, jobId, cycleId, status, apply, dryRun });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

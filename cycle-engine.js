@@ -8,7 +8,7 @@ import { saveJob, updateJob, saveCycleReport, getCycleReport, getLatestCycleRepo
 const queue = [];
 let processing = false;
 
-export async function runDecisionCycle({ windowHours = 24, dryRun = false } = {}) {
+export async function runDecisionCycle({ windowHours = 24, dryRun = false, apply = false } = {}) {
     const jobId = crypto.randomUUID();
     const cycleId = crypto.randomUUID();
 
@@ -24,7 +24,7 @@ export async function runDecisionCycle({ windowHours = 24, dryRun = false } = {}
     };
 
     await saveJob(job);
-    queue.push({ jobId, cycleId, windowHours, dryRun });
+    queue.push({ jobId, cycleId, windowHours, dryRun, apply });
     processQueue();
 
     return { jobId, cycleId, status: 'queued' };
@@ -42,7 +42,7 @@ async function processQueue() {
     processing = false;
 }
 
-async function processJob({ jobId, cycleId, windowHours, dryRun }) {
+async function processJob({ jobId, cycleId, windowHours, dryRun, apply }) {
     try {
         await updateJob(jobId, { status: 'running', startedAt: new Date().toISOString(), progress: 5 });
         console.log(`[CYCLE] start job=${jobId} cycle=${cycleId}`);
@@ -57,7 +57,7 @@ async function processJob({ jobId, cycleId, windowHours, dryRun }) {
         const governorDecision = applyGovernor(proposedPlan, snapshot);
         console.log(`[CYCLE] approved=${governorDecision.approvedActions.length} rejected=${governorDecision.rejectedActions.length}`);
 
-        const executionResults = await executeActions(governorDecision.approvedActions, { dryRun });
+        const executionResults = await executeActions(governorDecision.approvedActions, { dryRun, apply });
         console.log('[CYCLE] execution results captured');
 
         const report = {
@@ -68,7 +68,8 @@ async function processJob({ jobId, cycleId, windowHours, dryRun }) {
             governorDecision,
             executionResults,
             jobId,
-            dryRun
+            dryRun,
+            apply
         };
 
         await saveCycleReport(report);

@@ -140,6 +140,38 @@ export async function updateShopifyProduct(productId, updates) {
 }
 
 /**
+ * Fetch a single product (with variants) by ID
+ */
+export async function getShopifyProductById(productId) {
+    try {
+        const response = await shopifyRequest({ method: 'get', url: `/products/${productId}.json` });
+        return response.data.product;
+    } catch (error) {
+        console.error(`✗ Failed to fetch product ${productId}: ${error.message}`);
+        throw error;
+    }
+}
+
+/**
+ * Update variant price
+ */
+export async function updateVariantPrice(variantId, newPrice) {
+    try {
+        const response = await shopifyRequest({ method: 'put', url: `/variants/${variantId}.json`, data: {
+            variant: {
+                id: variantId,
+                price: newPrice
+            }
+        }});
+        console.log(`✓ Updated variant price ID: ${variantId} -> ${newPrice}`);
+        return response.data.variant;
+    } catch (error) {
+        console.error(`✗ Failed to update variant price: ${error.message}`);
+        throw error;
+    }
+}
+
+/**
  * Get all products from Shopify
  */
 export async function getShopifyProducts(limit = 250) {

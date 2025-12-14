@@ -16,8 +16,9 @@
     "autonomous:full": "node autonomous-store-setup.js",
     "setup": "bash setup.sh",
     "dev": "node --watch server.js",
-    "cycle:dry": "node cycle-dry-run.js",
-    "test": "node test-cycle.js && node test-integration.js"
+    "cycle:dry": "node cycle-run-cli.js",
+    "cycle:apply": "node cycle-run-cli.js --apply",
+    "test": "node test-cycle.js && node test-integration.js && node test-mutations-gating.js"
   },
   "keywords": [
     "shopify",

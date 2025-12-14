@@ -386,11 +386,11 @@ cat TRAFFIC_GENERATION_PLAN.md
 - Iterate on best-performing content
 
 ### Dynamic Decision Cycle (Governed Autonomy)
-- Trigger a governed optimization loop via `POST /api/cycle/run` (returns `jobId`/`cycleId`).
-- Fetch job state with `GET /api/jobs/:jobId` and full reports with `GET /api/cycle/:cycleId` or `GET /api/decisions/latest`.
-- Every cycle stores: snapshot of inputs, proposed AI plan, governor approvals/rejections, executed actions, and results.
-- Governor safeguards (env-tunable defaults): `MAX_NEW_PRODUCTS_PER_DAY=5`, `MAX_PUBLISH_PER_DAY=2`, `MAX_PRICE_CHANGE_PCT_PER_DAY=15`, `MIN_PRICE=19`, `MAX_PRICE=299`, `MAX_ACTIONS_PER_CYCLE=8`, `MAX_REFUND_RATE=0.08`, `DUPLICATE_TITLE_SIMILARITY=0.90`.
-- Default execution is safe/dry; set explicit envs before allowing publish/price changes.
+- **Dry run (default / safe):** `POST /api/cycle/run` or `POST /api/cycle/run?apply=false`. The executor records actions as `skipped` with clear reasons and no Shopify mutations.
+- **Apply mutations (explicit opt-in):** Either set `ALLOW_MUTATIONS=true` in the environment **or** call `POST /api/cycle/run?apply=true`. You can still force a dry run even when the env flag is on by sending `{ "dryRun": true }` in the body.
+- **Outputs:** Every cycle stores: snapshot of inputs, proposed AI plan, governor approvals/rejections, executed actions, `apply`/`dryRun` flags, and results (including `skippedBy`/`reason`).
+- **Guardrails:** Governor safeguards (env-tunable defaults): `MAX_NEW_PRODUCTS_PER_DAY=5`, `MAX_PUBLISH_PER_DAY=2`, `MAX_PRICE_CHANGE_PCT_PER_DAY=15`, `MIN_PRICE=19`, `MAX_PRICE=299`, `MAX_ACTIONS_PER_CYCLE=8`, `MAX_REFUND_RATE=0.08`, `DUPLICATE_TITLE_SIMILARITY=0.90`.
+- **CLI helpers:** `npm run cycle:dry` hits the dry endpoint; `npm run cycle:apply` triggers a governed cycle with `apply=true`.
 
 ---
 
