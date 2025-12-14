@@ -6,7 +6,12 @@
 import { generateSaaSProducts } from './saas-product-generator.js';
 import { generateAllCampaigns } from './autonomous-marketing.js';
 import { getShopifyProducts } from './shopify-integration.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import 'dotenv/config';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const OUTPUT_DIR = process.env.PROJECT_DIR || process.cwd() || __dirname;
 
 console.log('================================================');
 console.log('   DRACANUS AI - AUTONOMOUS STORE SETUP');
@@ -160,7 +165,8 @@ Check /campaigns folder for:
 - Revenue per channel
 `;
 
-    fs.writeFileSync('/home/user/ghost-project-integration/MARKETING_CALENDAR.md', calendar);
+    const outputPath = path.join(OUTPUT_DIR, 'MARKETING_CALENDAR.md');
+    fs.writeFileSync(outputPath, calendar);
     console.log('  ✓ Marketing calendar created');
 }
 
@@ -304,7 +310,8 @@ async function generateTrafficPlan() {
 - Month 3: 10,000+ visitors/month
 `;
 
-    fs.writeFileSync('/home/user/ghost-project-integration/TRAFFIC_GENERATION_PLAN.md', trafficPlan);
+    const outputPath = path.join(OUTPUT_DIR, 'TRAFFIC_GENERATION_PLAN.md');
+    fs.writeFileSync(outputPath, trafficPlan);
     console.log('  ✓ Traffic generation plan created');
 }
 
@@ -390,7 +397,8 @@ Native Shopify reports:
 - Product performance ranking
 `;
 
-    fs.writeFileSync('/home/user/ghost-project-integration/ANALYTICS_SETUP.md', analyticsGuide);
+    const outputPath = path.join(OUTPUT_DIR, 'ANALYTICS_SETUP.md');
+    fs.writeFileSync(outputPath, analyticsGuide);
     console.log('  ✓ Analytics guide created');
 }
 
