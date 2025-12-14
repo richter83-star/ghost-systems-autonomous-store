@@ -6,13 +6,15 @@
 import express from 'express';
 import crypto from 'crypto';
 import 'dotenv/config';
-import { 
-    getStoreInfo, 
+import {
+    getStoreInfo,
     getShopifyProducts,
     createWebhook,
     getWebhooks
 } from './shopify-integration.js';
 import { generateProducts } from './product-generator.js';
+import { runDecisionCycle, fetchCycleReport } from './cycle-engine.js';
+import { getJob, getLatestCycleReports } from './cycle-storage.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -152,7 +154,10 @@ app.get('/', async (req, res) => {
                 products: 'GET /api/products',
                 generate: 'POST /api/products/generate',
                 webhooks: 'GET /api/webhooks',
-                shopifyWebhook: 'POST /webhook/shopify/orders'
+                shopifyWebhook: 'POST /webhook/shopify/orders',
+                cycleRun: 'POST /api/cycle/run',
+                cycleStatus: 'GET /api/cycle/:cycleId',
+                jobStatus: 'GET /api/jobs/:jobId'
             }
         });
     } catch (error) {
@@ -333,6 +338,55 @@ app.get('/api/analytics', async (req, res) => {
 });
 
 // ================================================
+// DECISION CYCLE
+// ================================================
+
+app.post('/api/cycle/run', async (req, res) => {
+    try {
+        const windowHours = parseInt(req.body.windowHours || '24', 10);
+        const dryRun = req.body.dryRun === true || req.body.dryRun === 'true';
+        const { jobId, cycleId, status } = await runDecisionCycle({ windowHours, dryRun });
+
+        res.json({ success: true, jobId, cycleId, status });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/cycle/:cycleId', async (req, res) => {
+    try {
+        const report = await fetchCycleReport(req.params.cycleId);
+        if (!report) {
+            return res.status(404).json({ success: false, error: 'Cycle not found' });
+        }
+        res.json({ success: true, report });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/jobs/:jobId', async (req, res) => {
+    try {
+        const job = await getJob(req.params.jobId);
+        if (!job) {
+            return res.status(404).json({ success: false, error: 'Job not found' });
+        }
+        res.json({ success: true, job });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/decisions/latest', async (req, res) => {
+    try {
+        const reports = await getLatestCycleReports(1);
+        res.json({ success: true, report: reports[0] || null });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ================================================
 // ERROR HANDLING
 // ================================================
 
@@ -362,6 +416,10 @@ app.listen(PORT, () => {
     console.log(`  POST /api/products/generate  - Generate products`);
     console.log(`  GET  /api/webhooks           - List webhooks`);
     console.log(`  GET  /api/analytics          - View analytics`);
+    console.log(`  POST /api/cycle/run          - Trigger decision cycle`);
+    console.log(`  GET  /api/cycle/:cycleId     - Fetch cycle report`);
+    console.log(`  GET  /api/jobs/:jobId        - Fetch job status`);
+    console.log(`  GET  /api/decisions/latest   - Latest decision report`);
     console.log('================================================\n');
 });
 

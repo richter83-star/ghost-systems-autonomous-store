@@ -301,7 +301,7 @@ Each product gets:
 
 ### Backend
 - Express.js REST API
-- Node.js 22.x
+- Node.js 20.x (pinned for Render)
 - Firebase/Firestore
 
 ### AI & Automation
@@ -384,6 +384,13 @@ cat TRAFFIC_GENERATION_PLAN.md
 - Optimize underperforming campaigns
 - Scale successful channels
 - Iterate on best-performing content
+
+### Dynamic Decision Cycle (Governed Autonomy)
+- Trigger a governed optimization loop via `POST /api/cycle/run` (returns `jobId`/`cycleId`).
+- Fetch job state with `GET /api/jobs/:jobId` and full reports with `GET /api/cycle/:cycleId` or `GET /api/decisions/latest`.
+- Every cycle stores: snapshot of inputs, proposed AI plan, governor approvals/rejections, executed actions, and results.
+- Governor safeguards (env-tunable defaults): `MAX_NEW_PRODUCTS_PER_DAY=5`, `MAX_PUBLISH_PER_DAY=2`, `MAX_PRICE_CHANGE_PCT_PER_DAY=15`, `MIN_PRICE=19`, `MAX_PRICE=299`, `MAX_ACTIONS_PER_CYCLE=8`, `MAX_REFUND_RATE=0.08`, `DUPLICATE_TITLE_SIMILARITY=0.90`.
+- Default execution is safe/dry; set explicit envs before allowing publish/price changes.
 
 ---
 

@@ -1,0 +1,164 @@
+import crypto from 'crypto';
+
+const CONSTRAINTS = {
+    MAX_NEW_PRODUCTS_PER_DAY: parseInt(process.env.MAX_NEW_PRODUCTS_PER_DAY || '5', 10),
+    MAX_PUBLISH_PER_DAY: parseInt(process.env.MAX_PUBLISH_PER_DAY || '2', 10),
+    MAX_PRICE_CHANGE_PCT_PER_DAY: parseFloat(process.env.MAX_PRICE_CHANGE_PCT_PER_DAY || '15'),
+    MIN_PRICE: parseFloat(process.env.MIN_PRICE || '19'),
+    MAX_PRICE: parseFloat(process.env.MAX_PRICE || '299'),
+    MAX_ACTIONS_PER_CYCLE: parseInt(process.env.MAX_ACTIONS_PER_CYCLE || '8', 10),
+    MIN_SAMPLE_ORDERS_FOR_SCALING: parseInt(process.env.MIN_SAMPLE_ORDERS_FOR_SCALING || '3', 10),
+    MAX_REFUND_RATE: parseFloat(process.env.MAX_REFUND_RATE || '0.08'),
+    DUPLICATE_TITLE_SIMILARITY: parseFloat(process.env.DUPLICATE_TITLE_SIMILARITY || '0.9')
+};
+
+function similarity(a, b) {
+    if (!a || !b) return 0;
+    const shorter = a.length < b.length ? a : b;
+    const longer = a.length < b.length ? b : a;
+    const longerLength = longer.length;
+    if (longerLength === 0) return 1.0;
+    const editDist = levenshtein(longer, shorter);
+    return (longerLength - editDist) / longerLength;
+}
+
+function levenshtein(a, b) {
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j] + 1
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+function validateActionSchema(action) {
+    const allowedTypes = ['generate_products', 'refresh_copy', 'adjust_price', 'pause_product', 'create_bundle', 'generate_marketing'];
+    if (!action || !allowedTypes.includes(action.type)) {
+        return 'Unsupported action type';
+    }
+    if (!action.idempotencyKey) {
+        action.idempotencyKey = crypto.createHash('sha256').update(JSON.stringify(action)).digest('hex');
+    }
+    if (typeof action.payload !== 'object') {
+        return 'Missing payload';
+    }
+    return null;
+}
+
+function isDuplicateTitle(candidate, snapshot) {
+    const titles = (snapshot.productMetrics || []).map(p => p.title);
+    return titles.some(title => similarity(title?.toLowerCase(), candidate?.toLowerCase()) >= CONSTRAINTS.DUPLICATE_TITLE_SIMILARITY);
+}
+
+function enforcePrice(action, snapshot, rejected) {
+    const { productId, newPrice } = action.payload || {};
+    if (newPrice < CONSTRAINTS.MIN_PRICE || newPrice > CONSTRAINTS.MAX_PRICE) {
+        rejected.push({ action, reason: `Price must be between ${CONSTRAINTS.MIN_PRICE}-${CONSTRAINTS.MAX_PRICE}` });
+        return false;
+    }
+    const product = (snapshot.productMetrics || []).find(p => p.productId === productId);
+    if (product?.price) {
+        const pct = Math.abs((newPrice - product.price) / product.price) * 100;
+        if (pct > CONSTRAINTS.MAX_PRICE_CHANGE_PCT_PER_DAY) {
+            rejected.push({ action, reason: `Price change ${pct.toFixed(2)}% exceeds daily cap` });
+            return false;
+        }
+    }
+    return true;
+}
+
+export function applyGovernor(plan, snapshot) {
+    const approved = [];
+    const rejected = [];
+
+    const actions = (plan?.actions || []).slice(0, CONSTRAINTS.MAX_ACTIONS_PER_CYCLE + 5);
+
+    if (actions.length > CONSTRAINTS.MAX_ACTIONS_PER_CYCLE) {
+        const overage = actions.slice(CONSTRAINTS.MAX_ACTIONS_PER_CYCLE);
+        overage.forEach(action => rejected.push({ action, reason: 'Exceeded MAX_ACTIONS_PER_CYCLE' }));
+    }
+
+    const cappedActions = actions.slice(0, CONSTRAINTS.MAX_ACTIONS_PER_CYCLE);
+    let newProductsCount = 0;
+    let publishCount = 0;
+
+    for (const action of cappedActions) {
+        const schemaError = validateActionSchema(action);
+        if (schemaError) {
+            rejected.push({ action, reason: schemaError });
+            continue;
+        }
+
+        if (action.type === 'generate_products') {
+            const count = parseInt(action.payload?.count || '0', 10);
+            newProductsCount += count;
+            if (newProductsCount > CONSTRAINTS.MAX_NEW_PRODUCTS_PER_DAY) {
+                rejected.push({ action, reason: 'Exceeded MAX_NEW_PRODUCTS_PER_DAY' });
+                continue;
+            }
+            if ((action.payload?.mode || 'draft_only') === 'publish') {
+                publishCount += count;
+                if (publishCount > CONSTRAINTS.MAX_PUBLISH_PER_DAY) {
+                    rejected.push({ action, reason: 'Exceeded MAX_PUBLISH_PER_DAY' });
+                    continue;
+                }
+            }
+        }
+
+        if (action.type === 'adjust_price') {
+            if (!enforcePrice(action, snapshot, rejected)) {
+                continue;
+            }
+        }
+
+        if (action.type === 'pause_product') {
+            const product = (snapshot.productMetrics || []).find(p => p.productId === action.payload?.productId);
+            if (product && product.refundRate > CONSTRAINTS.MAX_REFUND_RATE) {
+                // allowed
+            }
+        }
+
+        if (action.type === 'refresh_copy') {
+            const product = (snapshot.productMetrics || []).find(p => p.productId === action.payload?.productId);
+            if (!product) {
+                rejected.push({ action, reason: 'Unknown product for refresh_copy' });
+                continue;
+            }
+        }
+
+        if (action.type === 'create_bundle') {
+            if (!Array.isArray(action.payload?.productIds) || !action.payload.productIds.length) {
+                rejected.push({ action, reason: 'create_bundle requires productIds' });
+                continue;
+            }
+        }
+
+        if (action.payload?.title && isDuplicateTitle(action.payload.title, snapshot)) {
+            rejected.push({ action, reason: 'Duplicate or highly similar title' });
+            continue;
+        }
+
+        approved.push(action);
+    }
+
+    return {
+        approvedActions: approved,
+        rejectedActions: rejected,
+        constraintsUsed: CONSTRAINTS
+    };
+}
