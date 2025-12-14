@@ -5,7 +5,12 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getShopifyProducts } from './shopify-integration.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import 'dotenv/config';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CAMPAIGNS_DIR = process.env.CAMPAIGNS_DIR || path.join(__dirname, 'campaigns');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -302,11 +307,12 @@ export async function generateAllCampaigns() {
     for (let i = 0; i < Math.min(products.length, 3); i++) {
         const campaign = await generateMarketingCampaign(products[i]);
         campaigns.push(campaign);
-        
+
         // Save campaign
         const fs = await import('fs');
-        const filename = `/home/user/ghost-project-integration/campaigns/campaign-${campaign.product.id}.json`;
-        fs.mkdirSync('/home/user/ghost-project-integration/campaigns', { recursive: true });
+        const campaignsDir = CAMPAIGNS_DIR;
+        fs.mkdirSync(campaignsDir, { recursive: true });
+        const filename = path.join(campaignsDir, `campaign-${campaign.product.id}.json`);
         fs.writeFileSync(filename, JSON.stringify(campaign, null, 2));
         console.log(`\n✓ Campaign saved: ${filename}`);
         

@@ -3,7 +3,7 @@
 # GHOST SYSTEMS - FULL INTEGRATION SETUP SCRIPT
 # ================================================
 
-set -e
+set -euo pipefail
 
 echo "================================================"
 echo "   GHOST SYSTEMS - FULL PROJECT INTEGRATION"
@@ -16,17 +16,21 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-PROJECT_DIR="/home/user/ghost-project-integration"
-GHOST_SYSTEMS_DIR="/home/user/ghost-project/GhostSystems"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${PROJECT_DIR:-${SCRIPT_DIR}}"
+SOURCE_DIR="${GHOST_SYSTEMS_DIR:-${SCRIPT_DIR}}"
+CHECK_SCRIPT="${SCRIPT_DIR}/../scripts/shopify-connection-check.js"
 
-echo -e "${YELLOW}Step 1: Creating integration workspace...${NC}"
+echo -e "${YELLOW}Step 1: Creating integration workspace at ${PROJECT_DIR}...${NC}"
 mkdir -p "$PROJECT_DIR"
 cd "$PROJECT_DIR"
 
-echo -e "${YELLOW}Step 2: Copying GhostSystems core files...${NC}"
-cp -r "$GHOST_SYSTEMS_DIR"/* "$PROJECT_DIR/" 2>/dev/null || {
-    echo -e "${RED}Note: Some files might already exist${NC}"
-}
+if [ "$SOURCE_DIR" != "$PROJECT_DIR" ]; then
+  echo -e "${YELLOW}Step 2: Copying GhostSystems core files...${NC}"
+  cp -r "$SOURCE_DIR"/* "$PROJECT_DIR/" 2>/dev/null || echo -e "${RED}Note: Some files might already exist${NC}"
+else
+  echo -e "${YELLOW}Step 2: Using existing project workspace (no copy needed)...${NC}"
+fi
 
 echo -e "${YELLOW}Step 3: Installing dependencies...${NC}"
 if [ -f "package.json" ]; then
@@ -47,27 +51,7 @@ else
 fi
 
 echo -e "${YELLOW}Step 5: Validating Shopify connection...${NC}"
-node -e "
-const axios = require('axios');
-require('dotenv').config();
-
-(async () => {
-    try {
-        const response = await axios.get(
-            'https://dracanus-ai.myshopify.com/admin/api/2024-10/shop.json',
-            {
-                headers: {
-                    'X-Shopify-Access-Token': process.env.SHOPIFY_ADMIN_API_TOKEN
-                }
-            }
-        );
-        console.log('✓ Shopify connection successful:', response.data.shop.name);
-    } catch (error) {
-        console.error('✗ Shopify connection failed:', error.message);
-        process.exit(1);
-    }
-})();
-"
+node "$CHECK_SCRIPT"
 
 echo ""
 echo -e "${GREEN}================================================${NC}"
