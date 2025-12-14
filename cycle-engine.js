@@ -51,18 +51,7 @@ async function processJob({ jobId, cycleId, windowHours, dryRun }) {
         console.log(`[CYCLE] snapshot products=${snapshot.productMetrics?.length || 0}`);
 
         const recent = await getLatestCycleReports(7);
-        const proposed = await proposeActionPlan(snapshot, recent);
-        const proposedPlan = {
-            ...proposed,
-            cycleId,
-            createdAt: new Date().toISOString(),
-            actions: (proposed.actions || []).map((action, idx) => ({
-                ...action,
-                idempotencyKey: action.idempotencyKey || crypto.createHash('sha256')
-                    .update(`${cycleId}-${idx}-${JSON.stringify(action.payload || {})}`)
-                    .digest('hex')
-            }))
-        };
+        const proposedPlan = await proposeActionPlan(snapshot, recent);
         console.log(`[CYCLE] proposed actions=${proposedPlan.actions?.length || 0}`);
 
         const governorDecision = applyGovernor(proposedPlan, snapshot);

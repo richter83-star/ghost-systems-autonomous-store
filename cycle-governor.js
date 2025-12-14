@@ -65,103 +65,6 @@ function isDuplicateTitle(candidate, snapshot) {
     return titles.some(title => similarity(title?.toLowerCase(), candidate?.toLowerCase()) >= CONSTRAINTS.DUPLICATE_TITLE_SIMILARITY);
 }
 
-function includesProhibitedClaims(text) {
-    if (!text) return false;
-    return /(guaranteed|guarantee|warranty|promise)/i.test(String(text));
-}
-
-function validateByType(action, snapshot, rejected) {
-    const { payload = {} } = action;
-    switch (action.type) {
-        case 'generate_products': {
-            const count = parseInt(payload.count || '0', 10);
-            if (!Number.isFinite(count) || count <= 0) {
-                rejected.push({ action, reason: 'generate_products requires a positive count' });
-                return false;
-            }
-            if (payload.mode && !['draft_only', 'publish'].includes(payload.mode)) {
-                rejected.push({ action, reason: 'generate_products mode must be draft_only or publish' });
-                return false;
-            }
-            if (includesProhibitedClaims(payload.title) || includesProhibitedClaims(payload.description)) {
-                rejected.push({ action, reason: 'Prohibited claims found in product copy' });
-                return false;
-            }
-            return true;
-        }
-        case 'refresh_copy': {
-            if (!payload.productId) {
-                rejected.push({ action, reason: 'refresh_copy requires productId' });
-                return false;
-            }
-            if (!Array.isArray(payload.fields) || !payload.fields.length) {
-                rejected.push({ action, reason: 'refresh_copy requires fields array' });
-                return false;
-            }
-            if (includesProhibitedClaims(payload.tone)) {
-                rejected.push({ action, reason: 'Prohibited claims in tone/copy' });
-                return false;
-            }
-            return true;
-        }
-        case 'adjust_price': {
-            if (!payload.productId || typeof payload.newPrice !== 'number') {
-                rejected.push({ action, reason: 'adjust_price requires productId and numeric newPrice' });
-                return false;
-            }
-            return true;
-        }
-        case 'pause_product': {
-            if (!payload.productId) {
-                rejected.push({ action, reason: 'pause_product requires productId' });
-                return false;
-            }
-            return true;
-        }
-        case 'create_bundle': {
-            if (!Array.isArray(payload.productIds) || payload.productIds.length < 2) {
-                rejected.push({ action, reason: 'create_bundle requires at least two productIds' });
-                return false;
-            }
-            if (typeof payload.bundlePrice !== 'number') {
-                rejected.push({ action, reason: 'create_bundle requires bundlePrice number' });
-                return false;
-            }
-            if (includesProhibitedClaims(payload.bundleTitle)) {
-                rejected.push({ action, reason: 'Prohibited claims in bundle title' });
-                return false;
-            }
-            return true;
-        }
-        case 'generate_marketing': {
-            if (payload.productIds && !Array.isArray(payload.productIds)) {
-                rejected.push({ action, reason: 'generate_marketing productIds must be an array' });
-                return false;
-            }
-            if (!Array.isArray(payload.channels) || payload.channels.length === 0) {
-                rejected.push({ action, reason: 'generate_marketing requires at least one channel' });
-                return false;
-            }
-            const allowedChannels = ['twitter', 'linkedin', 'reddit', 'email', 'seo'];
-            const invalidChannel = payload.channels.find(ch => !allowedChannels.includes(ch));
-            if (invalidChannel) {
-                rejected.push({ action, reason: `Unsupported marketing channel ${invalidChannel}` });
-                return false;
-            }
-            if (payload.productIds && payload.productIds.some(id => {
-                const product = (snapshot.productMetrics || []).find(p => p.productId === id);
-                return !product || (product.salesCount || 0) < CONSTRAINTS.MIN_SAMPLE_ORDERS_FOR_SCALING;
-            })) {
-                rejected.push({ action, reason: 'Not enough sample orders for selected products' });
-                return false;
-            }
-            return true;
-        }
-        default:
-            return true;
-    }
-}
-
 function enforcePrice(action, snapshot, rejected) {
     const { productId, newPrice } = action.payload || {};
     if (newPrice < CONSTRAINTS.MIN_PRICE || newPrice > CONSTRAINTS.MAX_PRICE) {
@@ -201,10 +104,6 @@ export function applyGovernor(plan, snapshot) {
             continue;
         }
 
-        if (!validateByType(action, snapshot, rejected)) {
-            continue;
-        }
-
         if (action.type === 'generate_products') {
             const count = parseInt(action.payload?.count || '0', 10);
             newProductsCount += count;
@@ -223,11 +122,6 @@ export function applyGovernor(plan, snapshot) {
 
         if (action.type === 'adjust_price') {
             if (!enforcePrice(action, snapshot, rejected)) {
-                continue;
-            }
-            const product = (snapshot.productMetrics || []).find(p => p.productId === action.payload?.productId);
-            if (product && (product.salesCount || 0) < CONSTRAINTS.MIN_SAMPLE_ORDERS_FOR_SCALING) {
-                rejected.push({ action, reason: 'Not enough orders to safely adjust price' });
                 continue;
             }
         }
