@@ -21,7 +21,7 @@ async function testDryModeSkipsMutations() {
 }
 
 async function testApplyModeUsesMockClient() {
-    process.env.ALLOW_MUTATIONS = 'false';
+    process.env.ALLOW_MUTATIONS = 'true';
     const actions = [{ type: 'adjust_price', payload: { productId: 'p-1', newPrice: 22 }, idempotencyKey: 'a2' }];
     const results = await executeActions(actions, { dryRun: false, apply: true, shopifyClient: mockShopifyClient });
     assert.strictEqual(results[0].status, 'success', 'Action should succeed when apply=true');

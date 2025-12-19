@@ -15,9 +15,20 @@ import {
 import { generateProducts } from './product-generator.js';
 import { runDecisionCycle, fetchCycleReport } from './cycle-engine.js';
 import { getJob, getLatestCycleReports } from './cycle-storage.js';
+import { plannerHealthCheck } from './cycle-planner.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+
+function parseBooleanInput(value) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === 'true') return true;
+        if (normalized === 'false') return false;
+    }
+    return undefined;
+}
 
 function normalizeStoreUrl(url) {
     if (!url) return url;
@@ -157,7 +168,8 @@ app.get('/', async (req, res) => {
                 shopifyWebhook: 'POST /webhook/shopify/orders',
                 cycleRun: 'POST /api/cycle/run',
                 cycleStatus: 'GET /api/cycle/:cycleId',
-                jobStatus: 'GET /api/jobs/:jobId'
+                jobStatus: 'GET /api/jobs/:jobId',
+                plannerHealth: 'GET /api/planner/test'
             }
         });
     } catch (error) {
@@ -343,12 +355,26 @@ app.get('/api/analytics', async (req, res) => {
 
 app.post('/api/cycle/run', async (req, res) => {
     try {
-        const windowHours = parseInt(req.body.windowHours || '24', 10);
-        const apply = (req.query.apply === 'true') || (process.env.ALLOW_MUTATIONS === 'true');
-        const dryRun = req.body?.dryRun === true || req.body?.dryRun === 'true' || !apply;
+        const windowHours = parseInt(req.body.windowHours || req.query.windowHours || '24', 10);
+        const queryApply = parseBooleanInput(req.query.apply);
+        const bodyApply = parseBooleanInput(req.body?.apply);
+        const queryDryRun = parseBooleanInput(req.query.dryRun);
+        const bodyDryRun = parseBooleanInput(req.body?.dryRun);
+
+        const apply = queryApply ?? bodyApply ?? false;
+        const dryRun = queryDryRun ?? bodyDryRun ?? !apply;
         const { jobId, cycleId, status } = await runDecisionCycle({ windowHours, dryRun, apply });
 
-        res.json({ success: true, jobId, cycleId, status, apply, dryRun });
+        res.json({
+            success: true,
+            jobId,
+            cycleId,
+            status,
+            apply,
+            dryRun,
+            report: null,
+            reportSummary: 'queued'
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -360,7 +386,15 @@ app.get('/api/cycle/:cycleId', async (req, res) => {
         if (!report) {
             return res.status(404).json({ success: false, error: 'Cycle not found' });
         }
-        res.json({ success: true, report });
+        res.json({
+            success: true,
+            report,
+            cycleId: report.cycleId,
+            jobId: report.jobId,
+            apply: report.apply,
+            dryRun: report.dryRun,
+            reportSummary: report.reportSummary
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -381,7 +415,25 @@ app.get('/api/jobs/:jobId', async (req, res) => {
 app.get('/api/decisions/latest', async (req, res) => {
     try {
         const reports = await getLatestCycleReports(1);
-        res.json({ success: true, report: reports[0] || null });
+        const report = reports[0] || null;
+        res.json({
+            success: true,
+            report,
+            cycleId: report?.cycleId,
+            jobId: report?.jobId,
+            apply: report?.apply,
+            dryRun: report?.dryRun,
+            reportSummary: report?.reportSummary
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/planner/test', async (req, res) => {
+    try {
+        const health = await plannerHealthCheck();
+        res.json({ success: true, ...health });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -421,6 +473,7 @@ app.listen(PORT, () => {
     console.log(`  GET  /api/cycle/:cycleId     - Fetch cycle report`);
     console.log(`  GET  /api/jobs/:jobId        - Fetch job status`);
     console.log(`  GET  /api/decisions/latest   - Latest decision report`);
+    console.log(`  GET  /api/planner/test       - Planner connectivity check`);
     console.log('================================================\n');
 });
 

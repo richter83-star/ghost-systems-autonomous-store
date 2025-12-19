@@ -20,7 +20,9 @@ export async function runDecisionCycle({ windowHours = 24, dryRun = false, apply
         progress: 0,
         createdAt: new Date().toISOString(),
         startedAt: null,
-        finishedAt: null
+        finishedAt: null,
+        apply,
+        dryRun
     };
 
     await saveJob(job);
@@ -52,13 +54,16 @@ async function processJob({ jobId, cycleId, windowHours, dryRun, apply }) {
 
         const recent = await getLatestCycleReports(7);
         const proposedPlan = await proposeActionPlan(snapshot, recent);
-        console.log(`[CYCLE] proposed actions=${proposedPlan.actions?.length || 0}`);
+        const plannerMeta = proposedPlan.plannerMeta || {};
+        console.log(`[CYCLE] proposed actions=${proposedPlan.actions?.length || 0} plannerStatus=${plannerMeta.status || 'unknown'}`);
 
         const governorDecision = applyGovernor(proposedPlan, snapshot);
         console.log(`[CYCLE] approved=${governorDecision.approvedActions.length} rejected=${governorDecision.rejectedActions.length}`);
 
         const executionResults = await executeActions(governorDecision.approvedActions, { dryRun, apply });
         console.log('[CYCLE] execution results captured');
+
+        const reportSummary = `${governorDecision.approvedActions.length} approved / ${governorDecision.rejectedActions.length} rejected actions; ${executionResults.length} execution results (${dryRun ? 'dry-run' : 'apply'})`;
 
         const report = {
             cycleId,
@@ -69,7 +74,11 @@ async function processJob({ jobId, cycleId, windowHours, dryRun, apply }) {
             executionResults,
             jobId,
             dryRun,
-            apply
+            apply,
+            plannerStatus: plannerMeta.status || 'unknown',
+            plannerErrorCode: plannerMeta.errorCode,
+            plannerMessage: plannerMeta.message,
+            reportSummary
         };
 
         await saveCycleReport(report);

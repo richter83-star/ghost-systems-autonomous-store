@@ -26,6 +26,9 @@
     "ai",
     "ecommerce"
   ],
+  "engines": {
+    "node": "20.x"
+  },
   "author": "DRACANUS AI",
   "license": "MIT",
   "dependencies": {

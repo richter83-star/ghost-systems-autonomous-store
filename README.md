@@ -41,7 +41,7 @@ Full-stack autonomous store with AI-powered product generation, automated market
 
 ## 🛠️ Tech Stack
 
-- **Runtime**: Node.js 22.x
+- **Runtime**: Node.js 20.x
 - **Framework**: Express.js
 - **E-commerce**: Shopify Admin API
 - **Database**: Firebase Firestore
@@ -144,6 +144,27 @@ npm test
 - `POST /api/products/generate` - Generate products
 - `GET /api/analytics` - View analytics
 - `POST /webhook/shopify/orders` - Order webhook
+- `POST /api/cycle/run` - Trigger decision cycle (dry-run by default unless `apply=true`)
+- `GET /api/cycle/:cycleId` - Fetch a specific cycle report
+- `GET /api/planner/test` - Validate Gemini planner connectivity
+
+### Decision cycle responses
+
+The cycle endpoints always return a stable envelope with convenience fields alongside the full report object:
+
+```json
+{
+  "success": true,
+  "cycleId": "8c1c...",
+  "jobId": "a12b...",
+  "apply": false,
+  "dryRun": true,
+  "reportSummary": "queued",
+  "report": null
+}
+```
+
+Fetching a completed cycle echoes the same fields with the full report populated. The API treats `apply`/`dryRun` strictly (strings "true"/"false" or booleans) so `apply=false` will always enforce a dry run and skip mutations. Set an environment gate `MUTATIONS_ENABLED=false` (or `ALLOW_MUTATIONS=false`) to force executor skips even when `apply=true`.
 
 ## 📊 Analytics
 
