@@ -5,8 +5,23 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function canMutate(options = {}) {
-    return options.apply === true || process.env.ALLOW_MUTATIONS === 'true';
+function mutationsEnvEnabled() {
+    const gate = process.env.MUTATIONS_ENABLED ?? process.env.ALLOW_MUTATIONS;
+    if (gate === undefined) return true;
+    return String(gate).toLowerCase() === 'true';
+}
+
+function mutationPermission(options = {}) {
+    if (options.dryRun) {
+        return { allowed: false, reason: 'dry-run (mutations disabled)' };
+    }
+    if (options.apply !== true) {
+        return { allowed: false, reason: 'apply flag not set' };
+    }
+    if (!mutationsEnvEnabled()) {
+        return { allowed: false, reason: 'mutations disabled by environment gate' };
+    }
+    return { allowed: true };
 }
 
 function buildDefaultShopifyClient() {
@@ -47,13 +62,9 @@ function pushResult(results, payload) {
 
 async function executeGenerateProducts(action, results, options) {
     const started = Date.now();
-    const mutationAllowed = canMutate(options);
-    if (options.dryRun) {
-        pushResult(results, { action, status: 'skipped', skippedBy: 'executor', reason: 'dry-run (mutations disabled)', durationMs: Date.now() - started });
-        return;
-    }
-    if (!mutationAllowed) {
-        pushResult(results, { action, status: 'skipped', skippedBy: 'executor', reason: 'mutations disabled', durationMs: Date.now() - started });
+    const permission = mutationPermission(options);
+    if (!permission.allowed) {
+        pushResult(results, { action, status: 'skipped', skippedBy: 'executor', reason: permission.reason, durationMs: Date.now() - started });
         return;
     }
 
@@ -65,13 +76,9 @@ async function executeGenerateProducts(action, results, options) {
 
 async function executeAdjustPrice(action, results, options) {
     const started = Date.now();
-    const mutationAllowed = canMutate(options);
-    if (options.dryRun) {
-        pushResult(results, { action, status: 'skipped', skippedBy: 'executor', reason: 'dry-run (mutations disabled)', durationMs: Date.now() - started });
-        return;
-    }
-    if (!mutationAllowed) {
-        pushResult(results, { action, status: 'skipped', skippedBy: 'executor', reason: 'mutations disabled', durationMs: Date.now() - started });
+    const permission = mutationPermission(options);
+    if (!permission.allowed) {
+        pushResult(results, { action, status: 'skipped', skippedBy: 'executor', reason: permission.reason, durationMs: Date.now() - started });
         return;
     }
 
