@@ -1,4 +1,4 @@
-# 🤖 DRACANUS AI - Autonomous SaaS Store
+# 🤖 DRACANUS AI - Single-Offer Shopify Store
 
 ![DRACANUS AI](https://cdn.shopify.com/s/files/1/0608/1855/4977/t/4/assets/dracanus-logo.jpg?v=1765538498)
 
@@ -6,15 +6,15 @@
 
 **Live Store**: https://dracanus-ai.myshopify.com
 
-Full-stack autonomous store with AI-powered product generation, automated marketing, and traffic generation system.
+This repository now operates in a **single-offer mode** anchored on the Ghost Launch Bundle. Scripts default to dry-runs to keep production safe; enabling mutations requires explicit flags and environment gates.
 
 ## 🚀 Features
 
-- ✅ **AI Product Generation**: Gemini-powered descriptions & images
-- ✅ **SaaS Product Focus**: 6 categories, 36+ unique products
-- ✅ **Marketing Automation**: Social media, email, SEO content
-- ✅ **Traffic Generation**: 90-day plan to 10K visitors/month
-- ✅ **Complete Integration**: Shopify + Firebase + Gemini AI
+- ✅ **Single Offer Mode**: Ghost Launch Bundle defined in `store/ghost-offer.json`
+- ✅ **Safe Publishing**: Mutation guardrails + explicit `--apply=true` flag
+- ✅ **Shopify Integration**: Admin API upsert and optional unpublish of other SKUs
+- ✅ **AI Product Generation**: Gemini-powered descriptions & images (available for future experiments)
+- ✅ **Marketing Automation**: Social media, email, SEO content (opt-in)
 
 ## 🎯 What's Included
 
@@ -67,25 +67,19 @@ npm start
 
 ## 🚀 Quick Start
 
-### Generate SaaS Products
+### Publish the Ghost Launch Bundle (dry-run by default)
 ```bash
-# Generate 10 products
-npm run generate:saas:10
+# Preview Shopify payload (no mutations)
+npm run ghost:publish
 
-# Generate 20 products
-npm run generate:saas:20
+# Apply changes (requires env gate)
+MUTATIONS_ENABLED=true npm run ghost:publish -- --apply=true
 ```
 
-### Generate Marketing Content
+### Unpublish any non-Ghost products
 ```bash
-# Generate campaigns for all products
-npm run marketing:generate
-```
-
-### Full Autonomous Setup
-```bash
-# Complete setup: Products + Marketing + Calendar
-npm run autonomous:full
+# Applies only when mutation guard is enabled
+npm run ghost:unpublish:apply
 ```
 
 ## 📚 Documentation
@@ -96,21 +90,9 @@ npm run autonomous:full
 - `TRAFFIC_GENERATION_PLAN.md` - Traffic strategy
 - `ANALYTICS_SETUP.md` - Tracking configuration
 
-## 🎨 Product Categories
+## 🎯 Single Offer Details
 
-1. **SaaS Starter Kits** ($47-$197)
-2. **Automation & Workflow** ($37-$127)
-3. **AI-Powered Tools** ($29-$97)
-4. **Growth & Marketing** ($39-$149)
-5. **Developer Resources** ($59-$179)
-6. **Customer Success** ($49-$159)
-
-## 📈 Revenue Projections
-
-- **Month 1**: $1,125 revenue (1,000 visitors)
-- **Month 2**: $7,500 revenue (5,000 visitors)
-- **Month 3**: $18,750 revenue (10,000 visitors)
-- **Month 6**: $67,500/month (30,000 visitors)
+The canonical product lives at `store/ghost-offer.json` and includes handle, price, SEO metadata, and the HTML product body. The publish script reads this file as the source of truth and will only mutate Shopify when both `--apply=true` and `MUTATIONS_ENABLED=true` (or `ALLOW_MUTATIONS=true`) are set. Use the unpublish helper to draft any non-Ghost products when you need a pure single-offer storefront.
 
 ## 🔑 Environment Variables
 

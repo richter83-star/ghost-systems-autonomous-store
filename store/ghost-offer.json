@@ -1,0 +1,21 @@
+{
+  "handle": "ghost-launch-bundle",
+  "title": "Ghost Launch Bundle",
+  "vendor": "Ghost Systems",
+  "productType": "AI Launch Kit",
+  "price": "149.00",
+  "tags": [
+    "ghost",
+    "launch",
+    "ai",
+    "automation",
+    "bundle",
+    "shopify"
+  ],
+  "seoTitle": "Ghost Launch Bundle | Single Offer AI Store",
+  "seoDescription": "Launch a Shopify offer in hours with the Ghost Launch Bundle: audited product copy, pricing, automation templates, and guardrails for safe publishing.",
+  "htmlBody": "<h2>Launch one irresistible offer without the chaos</h2><p>The Ghost Launch Bundle packages the only product your autonomous store needs: a fully written, production-safe offer with pricing, positioning, and automation guardrails. Ship a single, high-converting page instead of juggling dozens of experiments.</p><h3>What you get</h3><ul><li><strong>Conversion-ready product page</strong> with long-form copy, hero hooks, and objection handling</li><li><strong>Pricing + positioning guidance</strong> tuned for Shopify one-off or subscription variants</li><li><strong>Automation guardrails</strong> so every publish is gated behind explicit approvals</li><li><strong>Launch checklist</strong> covering SEO, images, and publishing toggles</li><li><strong>Support for collections</strong> so you can keep navigation tidy while staying single-offer focused</li></ul><h3>Who it is for</h3><p>Builders who want a disciplined, single-offer storefront instead of a sprawling catalog. If you value safety, clarity, and fast iteration, this bundle keeps your store on-rails.</p><h3>How it works</h3><ol><li>Review the Ghost Launch Bundle copy (this page) inside <code>store/ghost-offer.json</code></li><li>Run the publish script in dry-run mode to see the exact Shopify payload</li><li>Flip on mutation guardrails (<code>MUTATIONS_ENABLED=true</code> and <code>--apply=true</code>) to push the product live</li><li>Optionally unpublish everything else so the offer stands alone</li></ol><h3>Guarantees</h3><p>No hidden upsells, no surprise edits. You control when writes happen, and every script defaults to non-mutating dry-runs until you explicitly opt in.</p>",
+  "status": "active",
+  "images": [],
+  "collections": []
+}
