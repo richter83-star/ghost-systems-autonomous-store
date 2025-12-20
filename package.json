@@ -18,7 +18,10 @@
     "dev": "node --watch server.js",
     "cycle:dry": "node cycle-run-cli.js",
     "cycle:apply": "node cycle-run-cli.js --apply",
-    "test": "node test-cycle.js && node test-integration.js && node test-mutations-gating.js"
+    "test": "node test-cycle.js && node test-integration.js && node test-mutations-gating.js",
+    "ghost:publish": "node scripts/publish-ghost-bundle.js",
+    "ghost:publish:apply": "MUTATIONS_ENABLED=true node scripts/publish-ghost-bundle.js --apply=true",
+    "ghost:unpublish:apply": "MUTATIONS_ENABLED=true node scripts/unpublish-non-ghost.js --apply=true"
   },
   "keywords": [
     "shopify",
